@@ -11,7 +11,7 @@
 #include <time.h>
 #include <sys/time.h>
 
-#define PORT 9696
+#define PORT 3000
 #define IP "127.0.0.1"
 
 int main()
@@ -24,19 +24,11 @@ int main()
         exit(1);
     }
 
-    int enableReuse = 1;
-    if (setsockopt(listeningSocket, SOL_SOCKET, SO_REUSEADDR, &enableReuse, sizeof(int)) < 0) // 
-    {
-        perror("socket setting failed");
-        close(listeningSocket);
-        exit(1);
-    }
-
     struct sockaddr_in serverAddress;
-    memset(&serverAddress, 0, sizeof(serverAddress)); // reset
+    memset(&serverAddress, 0, sizeof(serverAddress));  // reset
     serverAddress.sin_family = AF_INET;                // IPv4
     serverAddress.sin_port = htons(PORT);              // translates an integer from host byte order to network byte order
-    serverAddress.sin_addr.s_addr = INADDR_ANY;        // recives any IP as an address which can communicate with it.
+    serverAddress.sin_addr.s_addr = IP;        // recives any IP as an address which can communicate with it.
 
     if (bind(listeningSocket, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < -1) // we bind the socket with the settings we set above.
     {
@@ -69,13 +61,6 @@ int main()
 
     printf("A new client connection accepted\n");
 
-
-
-
-
-
-
-
     int msec = 0, timer = 10; // 10 miliseconds
     clock_t before = clock();
     printf("hello partb");
@@ -83,14 +68,11 @@ int main()
     do
     {
         send();
-
         clock_t difference = clock() - before;
         msec = difference * 1000 / CLOCKS_PER_SEC;
-        // iterations++;
     } while (msec < timer);
 
-    // printf("Time taken %d seconds %d milliseconds (%d iterations)\n",
-        //    msec / 1000, msec % 1000, iterations);
+    printf("Time taken %d seconds %d milliseconds\n",msec / 1000, msec % 1000);
 
     return 0;
 }
