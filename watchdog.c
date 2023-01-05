@@ -11,11 +11,14 @@
 #include <time.h>
 #include <sys/time.h>
 
-#define PORT 9696
 #define IP "127.0.0.1"
+#define PONG "pong!"
+#define BUFSIZE 6
 
 int main()
 {
+    struct timeval start, end;
+
     int listeningSocket = socket(AF_INET, SOCK_STREAM, 0); // creating the listening socket to establish a connection
     if (listeningSocket <= 0)                              // Checking if the socket opened proparlly
     {
@@ -24,6 +27,12 @@ int main()
         exit(1);
     }
 
+    struct sockaddr_in serverAddress;
+    memset(&serverAddress, 0, sizeof(serverAddress)); // reset
+    serverAddress.sin_family = AF_INET;               // IPv4
+    serverAddress.sin_port = htons(3000);             // translates an integer from host byte order to network byte order
+    serverAddress.sin_addr.s_addr = INADDR_ANY;    // Convert Internet host address from numbers-and-dots notation in CP into binary data in network byte order.
+
     int enableReuse = 1;
     if (setsockopt(listeningSocket, SOL_SOCKET, SO_REUSEADDR, &enableReuse, sizeof(int)) < 0) // 
     {
@@ -31,12 +40,6 @@ int main()
         close(listeningSocket);
         exit(1);
     }
-
-    struct sockaddr_in serverAddress;
-    memset(&serverAddress, 0, sizeof(serverAddress)); // reset
-    serverAddress.sin_family = AF_INET;                // IPv4
-    serverAddress.sin_port = htons(PORT);              // translates an integer from host byte order to network byte order
-    serverAddress.sin_addr.s_addr = INADDR_ANY;        // recives any IP as an address which can communicate with it.
 
     if (bind(listeningSocket, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < -1) // we bind the socket with the settings we set above.
     {
@@ -62,35 +65,74 @@ int main()
     int clientSocket = accept(listeningSocket, (struct sockaddr *)&clientAddress, &clientAddressLen); // Await a connection on socket, When a connection arrives, open a new socket to communicate with it
     if (clientSocket <= 0)                                                                            // checks if the connection has done proparlly
     {
-        perror("client socket acception failed.");
+        perror("new_ping socket acception failed.");
         close(listeningSocket);
         exit(1);
     }
 
-    printf("A new client connection accepted\n");
+    printf("started watchdog with new_ping\n");
 
+    char ip[16] = {0};
 
-
-
-
-
-
-
-    int msec = 0, timer = 10; // 10 miliseconds
-    clock_t before = clock();
-    printf("hello partb");
-
-    do
+    if (recv(clientSocket, ip, 16, 0) < 0) // receiving PONG message
     {
-        send();
+        perror("recv() failed");
+        close(clientSocket);
+        exit(errno);
+    }
+    printf("1\n");
 
-        clock_t difference = clock() - before;
-        msec = difference * 1000 / CLOCKS_PER_SEC;
-        // iterations++;
-    } while (msec < timer);
+    while (1)
+    {
+        char okmsg1[BUFSIZE] = { 0 };
+        if (recv(clientSocket, okmsg1, BUFSIZE, 0) < -1) // receiving PONG message
+        {
+            printf("recv() failed");
+            close(clientSocket);
+            exit(1);
+        }
+        printf("2\n");
+        if (strcmp(okmsg1, PONG) != 0)
+        {
+            printf("Error");
+            close(clientSocket);
+            close(listeningSocket);
+            exit(1);
+        }
+        char okmsg2[BUFSIZE] = { 0 };
+        // Start the timer
+        gettimeofday(&start, 0);
+        if (recv(clientSocket, okmsg2, BUFSIZE, 0) < -1) // receiving PONG message
+        {
+            printf("recv() failed");
+            close(clientSocket);
+            close(listeningSocket);
+            exit(1);
+        }
+        printf("3\n");
+        if (strcmp(okmsg2, PONG) != 0)
+        {
+            printf("Error");
+            close(clientSocket);
+            close(listeningSocket);
+            exit(1);
+        }
+        // End the timer
+        gettimeofday(&end, 0);
 
-    // printf("Time taken %d seconds %d milliseconds (%d iterations)\n",
-        //    msec / 1000, msec % 1000, iterations);
+        float milliseconds = (end.tv_sec - start.tv_sec) * 1000.0f + (end.tv_usec - start.tv_usec) / 1000.0f;
+        if (milliseconds >= 10.0)
+        {
+            printf("server %p cannot be reached.", ip);
+            kill(0, 1);
+        }
+
+        settimeofday(&start, 0);
+        settimeofday(&end, 0);
+    }
+
+    close(listeningSocket);
+    close(clientSocket);
 
     return 0;
 }
