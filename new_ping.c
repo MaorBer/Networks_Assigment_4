@@ -1,15 +1,3 @@
-/*
-This code is a C program that creates a raw socket and sends an ICMP
-(Internet Control Message Protocol) echo request to a specified host IP address.
-The program can be run from the terminal with the command ./partb <host_ip_address>,
-where <host_ip_address> is the IP address of the host to which the echo request will be sent.
-The program then creates a child process that runs the watchdog program and waits for a response from the host.
-If no response is received within a certain amount of time,
-the child process sends a message to the parent process to terminate.
-The parent process then sends another echo request and the process repeats. The program also calculates the checksum of the
-ICMP header and prints the round-trip time (RTT) of the echo request and response.
-*/
-
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
@@ -42,6 +30,10 @@ int main(char args, char *argv[])
     struct timeval start, end;
     struct icmp icmphdr; // ICMP-header
     struct iphdr *iphdr_res;
+
+    tcpStruct.sin_port = htons(3000);
+    tcpStruct.sin_addr.s_addr = INADDR_ANY; // Convert Internet host address from numbers-and-dots notation in CP into binary data in network byte order.
+    tcpStruct.sin_family = AF_INET;
 
     if (args != 2)
     { // Error in input from terminal
@@ -95,15 +87,10 @@ int main(char args, char *argv[])
             fprintf(stderr, "socket() failed with error: %d", errno);
             return -1;
         }
-        printf("Creating another process using fork()...\n");
-
-        memset(&tcpStruct, 0, sizeof(struct sockaddr));
-        tcpStruct.sin_port = htons(3000);
-        tcpStruct.sin_addr.s_addr = INADDR_ANY; // Convert Internet host address from numbers-and-dots notation in CP into binary data in network byte order.
-        tcpStruct.sin_family = AF_INET;
 
         char *command = "./watchdog";
         char *argument_list[] = {"./watchdog", NULL};
+        printf("Before calling execvp()\n");
         int pid = fork();
         if (pid == 0)
         {
@@ -119,9 +106,11 @@ int main(char args, char *argv[])
             }
         }
 
-        sleep(1);
+        usleep(1000000);
 
-        if (connect(tcpSock, (struct sockaddr *)&tcpStruct, sizeof(tcpStruct)) < 0)
+        printf("Creating another process using fork()...\n");
+
+        if (connect(tcpSock, (struct sockaddr *)&tcpStruct, sizeof(tcpStruct)) == -1)
         {
             printf("Couldn't create the connection correctly, error number: %d\n", errno);
             close(sock);
