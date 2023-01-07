@@ -1,3 +1,22 @@
+/*
+This is a C program that creates a listening socket and waits for an incoming connection 
+from a client. When the connection is established, it receives a message from the client 
+(an IP address stored in a char array called "ip") and sets up a timer that expires 
+every 10 seconds.
+The timer is implemented using the setitimer() function and a signal handler function 
+called timer_handler(). When the timer expires, the signal handler function is called, 
+which does some processing and then sets the timer again to expire in 10 seconds. 
+This process continues indefinitely until the program is interrupted or terminated.
+After the timer is set up, the program enters an infinite loop in which it repeatedly 
+receives a message from the client, checks if the message is the string "ping", and if it is, 
+sends a message back to the client with the string "pong".
+The program includes several header files at the beginning, which provide 
+declarations and function prototypes for functions used in the program, 
+such as socket(), bind(), listen(), accept(), recv(), and setitimer(). 
+The header files also define various constants and data structures used in the program, 
+such as sockaddr_in and itimerval.
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
@@ -11,10 +30,13 @@
 #include <time.h>
 #include <sys/time.h>
 
-#define IP "127.0.0.1"
+char ip[16] = {'\0'};
+
+void timer_handler(int signum);
 
 int main()
 {
+
     int listeningSocket = socket(AF_INET, SOCK_STREAM, 0); // creating the listening socket to establish a connection
     if (listeningSocket <= 0)                              // Checking if the socket opened proparlly
     {
@@ -53,13 +75,12 @@ int main()
 
     printf("Waiting for incoming TCP-connection...\n"); // we wait for the client to send a connection request.
 
-    struct sockaddr_in clientAddress; // we set our preferences for the client socket
+    struct sockaddr_in clientAddress;
     socklen_t clientAddressLen = sizeof(clientAddress);
     memset(&clientAddress, 0, sizeof(clientAddress)); // reset
     clientAddressLen = sizeof(clientAddress);
-
     int clientSocket = accept(listeningSocket, (struct sockaddr *)&clientAddress, &clientAddressLen); // Await a connection on socket, When a connection arrives, open a new socket to communicate with it
-    if (clientSocket <= 0)                                                                            // checks if the connection has done proparlly
+    if (clientSocket <= 0)                                                                             // checks if the connection has done proparlly
     {
         perror("new_ping socket acception failed.");
         close(listeningSocket);
@@ -67,8 +88,6 @@ int main()
     }
 
     printf("started watchdog with new_ping\n");
-
-    char ip[16] = {0};
     if (recv(clientSocket, ip, 16, 0) < 0) // receiving the ip message
     {
         perror("recv() failed");
@@ -76,27 +95,41 @@ int main()
         exit(errno);
     }
 
-    int timer = 0;
-    char pong[5];
-    // Time functionality
-    while (timer < 10)
+    struct itimerval value;
+    struct sigaction sa;
+
+    // Set the signal handler for the timer
+    sa.sa_handler = timer_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGALRM, &sa, NULL);
+
+    // Set the timer to expire in 10 seconds
+    value.it_value.tv_sec = 10;
+    value.it_value.tv_usec = 0;
+    value.it_interval.tv_sec = 10;
+    value.it_interval.tv_usec = 0;
+
+    // Set the timer
+    setitimer(ITIMER_REAL, &value, NULL);
+    // Wait for the timer to expire
+    signal(SIGALRM, timer_handler);
+
+    char arr[BUFSIZ] = {0};
+    if (recv(clientSocket, arr, BUFSIZ, 0) < 0) // // receiving message to check if we need to stop the program.
     {
-        int bytes_received = recv(clientSocket, pong, 5, 0);    // Check if we received data
-        if (bytes_received > 0)
-        {
-            timer = 0;
-            continue;
-        }
-        else 
-        {
-            timer = timer + 1;
-            sleep(1);
-        }
+        perror("recv() failed");
+        close(clientSocket);
+        exit(errno);
     }
 
-    printf("server %s cannot be reached.", ip);
-    close(listeningSocket);
     close(clientSocket);
-    kill(0,1);
-    return 0;
+    close(listeningSocket);
+    exit(1);
+}
+
+void timer_handler(int signum)
+{
+    printf("server %s cannot be reached.\n", ip);
+    kill(0, SIGKILL);
 }
