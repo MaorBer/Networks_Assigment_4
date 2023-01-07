@@ -1,3 +1,15 @@
+/*
+This code is a C program that creates a raw socket and sends an ICMP
+(Internet Control Message Protocol) echo request to a specified host IP address.
+The program can be run from the terminal with the command ./partb <host_ip_address>,
+where <host_ip_address> is the IP address of the host to which the echo request will be sent.
+The program then creates a child process that runs the watchdog program and waits for a response from the host.
+If no response is received within a certain amount of time,
+the child process sends a message to the parent process to terminate.
+The parent process then sends another echo request and the process repeats. The program also calculates the checksum of the
+ICMP header and prints the round-trip time (RTT) of the echo request and response.
+*/
+
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
@@ -23,33 +35,13 @@ unsigned short calculate_checksum(unsigned short *paddress, int len);
 #define IP "127.0.0.1"
 // i.e the gateway or ping to google.com for their ip-address
 
-#define PONG "pong!"
-
 int main(char args, char *argv[])
 {
+
     struct sockaddr_in dest_in, tcpStruct;
     struct timeval start, end;
     struct icmp icmphdr; // ICMP-header
-
-    char data[IP_MAXPACKET] = "Hello world we are Yuval and Maor.\n";
-    int datalen = strlen(data) + 1;
-    // ICMP header checksum (16 bits): set to 0 not to include into checksum calculation
-    icmphdr.icmp_cksum = 0;
-    // Combine the packet
-    char packet[IP_MAXPACKET];
-    // Next, ICMP header
-    memcpy((packet), &icmphdr, ICMP_HDRLEN);
-    // After ICMP header, add the ICMP data.
-    memcpy(packet + ICMP_HDRLEN, data, datalen);
-    // Calculate the ICMP header checksum
-    icmphdr.icmp_cksum = calculate_checksum((unsigned short *)(packet), ICMP_HDRLEN + datalen);
-    memcpy((packet), &icmphdr, ICMP_HDRLEN);
-
-    int tcpSock = socket(AF_INET, SOCK_STREAM, 0);
-
-    tcpStruct.sin_port = htons(3000);
-    tcpStruct.sin_addr.s_addr = INADDR_ANY; // Convert Internet host address from numbers-and-dots notation in CP into binary data in network byte order.
-    tcpStruct.sin_family = AF_INET;
+    struct iphdr *iphdr_res;
 
     if (args != 2)
     { // Error in input from terminal
@@ -95,45 +87,69 @@ int main(char args, char *argv[])
     // Sequence Number (16 bits): starts at 0
     icmphdr.icmp_seq = 0;
 
-    char *command = "./watchdog";
-    char *argument_list[] = {"./watchdog", NULL};
-    printf("Before calling execvp()\n");
-    printf("Creating another process using fork()...\n");
-
-    int pid = fork();
-    if (pid == 0)
-    {
-        // Newly spawned child Process. This will be taken over by "ls -l"
-        int status_code = execvp(command, argument_list);
-
-        printf("./watchdog has taken control of this child process. This won't execute unless it terminates abnormally!\n");
-
-        if (status_code == -1)
-        {
-            printf("Terminated Incorrectly\n");
-            return 1;
-        }
-    }
-
-    sleep(1);
-
-    if (connect(tcpSock, (struct sockaddr *)&tcpStruct, sizeof(tcpStruct)) == -1)
-    {
-        printf("Couldn't create the connection correctly, error number: %d\n", errno);
-        close(sock);
-        exit(1);
-    }
-
-    if (send(tcpSock, argv[1], strlen(argv[1]), 0) < 0) // sending the ip
-    {
-        perror("send() failed");
-        close(sock);
-        close(tcpSock);
-        exit(1);
-    }
-
     while (1)
     {
+        int tcpSock = socket(AF_INET, SOCK_STREAM, 0);
+        if (tcpSock == -1)
+        {
+            fprintf(stderr, "socket() failed with error: %d", errno);
+            return -1;
+        }
+        printf("Creating another process using fork()...\n");
+
+        memset(&tcpStruct, 0, sizeof(struct sockaddr));
+        tcpStruct.sin_port = htons(3000);
+        tcpStruct.sin_addr.s_addr = INADDR_ANY; // Convert Internet host address from numbers-and-dots notation in CP into binary data in network byte order.
+        tcpStruct.sin_family = AF_INET;
+
+        char *command = "./watchdog";
+        char *argument_list[] = {"./watchdog", NULL};
+        int pid = fork();
+        if (pid == 0)
+        {
+            // Newly spawned child Process. This will be taken over by "ls -l"
+            int status_code = execvp(command, argument_list);
+
+            printf("./watchdog has taken control of this child process. This won't execute unless it terminates abnormally!\n");
+
+            if (status_code == -1)
+            {
+                printf("Terminated Incorrectly\n");
+                return 1;
+            }
+        }
+
+        sleep(1);
+
+        if (connect(tcpSock, (struct sockaddr *)&tcpStruct, sizeof(tcpStruct)) < 0)
+        {
+            printf("Couldn't create the connection correctly, error number: %d\n", errno);
+            close(sock);
+            exit(1);
+        }
+
+        if (send(tcpSock, argv[1], strlen(argv[1]) + 1, 0) < 0) // sending the ip
+        {
+            perror("send() failed");
+            close(sock);
+            close(tcpSock);
+            exit(1);
+        }
+
+        char data[IP_MAXPACKET] = "Hello world we are Yuval and Maor.\n";
+        int datalen = strlen(data) + 1;
+        // ICMP header checksum (16 bits): set to 0 not to include into checksum calculation
+        icmphdr.icmp_cksum = 0;
+        // Combine the packet
+        char packet[IP_MAXPACKET];
+        // Next, ICMP header
+        memcpy((packet), &icmphdr, ICMP_HDRLEN);
+        // After ICMP header, add the ICMP data.
+        memcpy(packet + ICMP_HDRLEN, data, datalen);
+        // Calculate the ICMP header checksum
+        icmphdr.icmp_cksum = calculate_checksum((unsigned short *)(packet), ICMP_HDRLEN + datalen);
+        memcpy((packet), &icmphdr, ICMP_HDRLEN);
+
         int bytes_sent = -1;
         // Send the packet using sendto() for sending datagrams.
 
@@ -146,54 +162,50 @@ int main(char args, char *argv[])
             return -1;
         }
 
-        char *pongBuffer = PONG;
-        if (send(tcpSock, pongBuffer, strlen(PONG) + 1, 0) < 0) // sending PONG message
-        {
-            perror("send() failed");
-            close(sock);
-            close(tcpSock);
-            exit(1);
-        }
         // Get the ping response
         bzero(packet, sizeof(packet));
         socklen_t len = sizeof(dest_in);
-        ssize_t bytes_received = -1;
+        int bytes_received = -1;
 
         while ((bytes_received = recvfrom(sock, packet, sizeof(packet), 0, (struct sockaddr *)&dest_in, &len)))
         {
             if (bytes_received > 0)
             {
-                printf("%ld bytes from %s: icmp_seq=%d ", bytes_received, inet_ntoa(dest_in.sin_addr), icmphdr.icmp_seq);
                 break;
-            }else{
+            }
+            else
+            {
                 printf("Error in recvfrom()\n");
             }
         }
 
         gettimeofday(&end, 0); // End the timer
-        
-        char *pongBuffer1 = PONG;
-        if (send(tcpSock, pongBuffer1, strlen(PONG) + 1, 0) < 0) // sending PONG message
-        {
-            perror("send() failed");
-            close(sock);
-            close(tcpSock);
-            exit(1);
-        }
+        printf(" IDONIGGER\n");
 
-        icmphdr.icmp_seq++;
-        float milliseconds = (end.tv_sec - start.tv_sec) * 1000.0f + (end.tv_usec - start.tv_usec) / 1000.0f;
-        unsigned long microseconds = (end.tv_sec - start.tv_sec) * 1000.0f + (end.tv_usec - start.tv_usec);
-        printf("RTT: %f milliseconds (%ld microseconds)\n", milliseconds, microseconds);
+        float milliseconds = 0.0f;
+        milliseconds = ((end.tv_sec - start.tv_sec) * 1000) + (((double)end.tv_usec - start.tv_usec) / 1000);
+        iphdr_res = (struct iphdr *)packet;
+        printf("%ld bytes from %s: ", strlen(data) + 1, argv[1]);
+        printf("icmp_seq=%d ttl=%d time=%.3f ms\n", icmphdr.icmp_seq++, iphdr_res->ttl, milliseconds);
         settimeofday(&start, 0);
         settimeofday(&end, 0);
 
         // Make the ping program sleep some time before sending another ICMP ECHO packet.
-        usleep(1000000);
+        sleep(1);
+
+        // Close the raw socket descriptor.
+
+        char arr[BUFSIZ] = {0};
+        if (send(tcpSock, arr, BUFSIZ, 0) < 0) // sending PONG message
+        {
+            perror("send() failed");
+            close(sock);
+            close(tcpSock);
+            exit(errno);
+        }
+        close(tcpSock);
     }
-    // Close the raw socket descriptor.
     close(sock);
-    close(tcpSock);
 
     return 0;
 }
@@ -225,23 +237,3 @@ unsigned short calculate_checksum(unsigned short *paddress, int len)
 
     return answer;
 }
-
-// run 2 programs using fork + exec
-// command: make clean && make all && ./partb
-// int main()
-// {
-//     char *args[2];
-//     // compiled watchdog.c by makefile
-//     args[0] = "./watchdog";
-//     args[1] = NULL;
-//     int status;
-//     int pid = fork();
-//     if (pid == 0)
-//     {
-//         printf("in child \n");
-//         execvp(args[0], args);
-//     }
-//     wait(&status); // waiting for child to finish before exiting
-//     printf("child exit status is: %d", status);
-//     return 0;
-// }
